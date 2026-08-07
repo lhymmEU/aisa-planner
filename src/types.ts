@@ -20,6 +20,8 @@ export interface Operation {
   kind: "read" | "write";
   /** Present when the operation consumes provider credits or sends real messages. */
   costNote?: string;
+  /** Request body media type when it is not application/json (e.g. multipart/form-data). */
+  bodyMediaType?: string;
 }
 
 export interface CatalogHeader {
@@ -73,6 +75,7 @@ export interface HydratedPlanStep extends PlanStep {
   outputSchema?: JSONSchema;
   kind?: "read" | "write";
   costNote?: string;
+  bodyMediaType?: string;
 }
 
 export interface HydratedPlan {

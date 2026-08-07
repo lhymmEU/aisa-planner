@@ -9,7 +9,12 @@ function fence(value: unknown): string {
 
 function stepBadge(v: StepValidation | undefined): string {
   if (!v) return "";
-  if (v.ok) return "**Validation:** ✅ operation exists, required params present, literal values match the schema";
+  if (v.ok) {
+    const uncompiled = v.warnings.some((w) => w.includes("could not be compiled"));
+    return uncompiled
+      ? "**Validation:** ✅ operation exists, required params present (schema could not be compiled — literal values were NOT type-checked)"
+      : "**Validation:** ✅ operation exists, required params present, literal values match the schema";
+  }
   const problems: string[] = [];
   if (!v.exists) problems.push(`operationId not found in catalog`);
   if (v.missingParams.length > 0) problems.push(`missing required params: ${v.missingParams.join(", ")}`);
@@ -22,13 +27,19 @@ function stepBadge(v: StepValidation | undefined): string {
  * fenced schemas, ⚠ lines for write/cost steps, and per-step validation badges.
  */
 export function renderPlanMarkdown(plan: HydratedPlan, validation: PlanValidation): string {
-  const byStep = new Map(validation.steps.map((s) => [s.stepNumber, s]));
+  // validation.steps is index-aligned with plan.steps by construction; pairing
+  // by index (not stepNumber) keeps badges correct even with duplicate step
+  // numbers, and display order follows execution order.
+  const paired = plan.steps
+    .map((step, i) => ({ step, v: validation.steps[i] }))
+    .sort((a, b) => a.step.stepNumber - b.step.stepNumber);
   const lines: string[] = [];
 
   lines.push(`# Plan: ${plan.goal}`, "");
   lines.push(
     `> **Execution:** call \`${AISA_DATA_BASE_URL}\` with header \`Authorization: Bearer $AISA_API_KEY\`.`,
-    `> Errors and rate limits: ${DOCS_URL}. Never hardcode the key; read it from the environment.`,
+    `> Errors and rate limits: ${DOCS_URL} (DataForSEO steps: https://docs.dataforseo.com/v3/appendix/errors.md).`,
+    `> Never hardcode the key; read it from the environment.`,
     "",
   );
 
@@ -47,8 +58,7 @@ export function renderPlanMarkdown(plan: HydratedPlan, validation: PlanValidatio
     lines.push("");
   }
 
-  for (const step of plan.steps) {
-    const v = byStep.get(step.stepNumber);
+  for (const { step, v } of paired) {
     lines.push(`## Step ${step.stepNumber} — \`${step.operationId}\``, "");
     if (step.method && step.path) {
       lines.push(`\`${step.method} ${step.path}\`${step.summary ? ` — ${step.summary}` : ""}`, "");

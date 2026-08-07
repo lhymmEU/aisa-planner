@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { Command } from "commander";
-import { loadCatalog } from "./catalog.js";
+import { defaultCatalogPath, loadCatalog } from "./catalog.js";
 import { createPlan } from "./planner.js";
 import { listSources } from "./retrieval.js";
 import { validatePlan } from "./validator.js";
@@ -120,7 +120,11 @@ program
   .command("build-catalog")
   .description("Rebuild the operation catalog from the live AIsa OpenAPI spec")
   .option("--model <id>", "embedding model ID", "jina-embeddings-v3")
-  .option("--out <path>", "output artifact path", "catalogs/aisa-jina-v3.catalog")
+  .option(
+    "--out <path>",
+    "output artifact path (default: the catalog this install loads, so plan/sources pick it up directly)",
+    defaultCatalogPath(),
+  )
   .option("--spec <url>", "spec URL", "https://aisa.one/openapi.yaml")
   .option("--no-embed", "skip embeddings (catalog loads, but retrieval is disabled)")
   .action(async (opts: { model: string; out: string; spec: string; embed: boolean }) => {

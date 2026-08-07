@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateObject, NoObjectGeneratedError } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
 import { AISA_INFERENCE_BASE_URL, resolveApiKey } from "./aisa-client.js";
@@ -91,6 +91,7 @@ function hydrate(plan: Plan, catalog: Catalog): HydratedPlan {
         outputSchema: op.outputSchema,
         kind: op.kind,
         costNote: op.costNote,
+        bodyMediaType: op.bodyMediaType,
       };
     }),
   };
@@ -148,6 +149,9 @@ ${candidates.map(candidateLine).join("\n")}`;
       prompt,
     });
     const plan = object as Plan;
+    // Execution order is defined by stepNumber; normalize the array so every
+    // downstream consumer (validation, markdown, JSON) sees that order.
+    plan.steps.sort((a, b) => a.stepNumber - b.stepNumber);
     return { plan, validation: validatePlan(plan, catalog) };
   };
 
@@ -157,9 +161,11 @@ ${candidates.map(candidateLine).join("\n")}`;
   try {
     ({ plan, validation } = await attempt(basePrompt));
   } catch (err) {
-    // Malformed / non-JSON model output; give the model its one repair shot.
+    // Only unusable model output earns the repair retry; transport/auth/rate
+    // errors propagate immediately as what they are.
+    if (!NoObjectGeneratedError.isInstance(err)) throw err;
     firstFailure = `your previous response was not the required JSON object (${
-      err instanceof Error ? err.message.split("\n")[0] : String(err)
+      err.message.split("\n")[0]
     })`;
   }
 
@@ -167,7 +173,7 @@ ${candidates.map(candidateLine).join("\n")}`;
     // One repair pass; whatever comes back second is the answer — validation
     // failures surface as red badges in the result, not exceptions.
     const failures = plan && validation
-      ? `Your previous plan had these validation failures:\n${formatValidationFailures(validation)}`
+      ? `Your previous plan was:\n${JSON.stringify(plan)}\n\nIt had these validation failures:\n${formatValidationFailures(validation)}`
       : `Note: ${firstFailure ?? "your previous response was unusable"}.`;
     const repairPrompt = `${basePrompt}
 
@@ -178,10 +184,9 @@ Produce a corrected plan that fixes every failure. Same rules apply.`;
       ({ plan, validation } = await attempt(repairPrompt));
     } catch (err) {
       if (!plan || !validation) {
+        if (!NoObjectGeneratedError.isInstance(err)) throw err;
         throw new Error(
-          `The planning model (${modelId}) failed to return a plan twice: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
+          `The planning model (${modelId}) failed to return a plan twice: ${err.message}`,
         );
       }
       // Keep the first attempt's plan + failures rather than losing everything.

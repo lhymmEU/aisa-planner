@@ -80,6 +80,13 @@ executor knows where to put it. `body-root` means the property named `body`
 *is* the whole request body (used for array-shaped bodies, e.g. DataForSEO
 task lists).
 
+The merged object is **closed** (`additionalProperties: false` unless the
+spec's body schema explicitly allows extra keys), so misspelled or invented
+parameter names are hard validation failures, not silent passengers. When a
+request body is not JSON, the step carries `bodyMediaType`
+(e.g. `"multipart/form-data"`) and validation emits a warning to send body
+params as form parts.
+
 ## Validation semantics
 
 Hard failures (`ok: false`) — the step must not be executed as-is:

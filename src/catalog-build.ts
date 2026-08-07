@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { dereference } from "@readme/openapi-parser";
@@ -134,19 +134,30 @@ export function sanitizeSchema(schema: unknown, depth = 0): JSONSchema | undefin
   }
   const out: JSONSchema = {};
   for (const [key, value] of Object.entries(src)) {
-    if (key === "example" || key === "examples" || key === "xml" || key.startsWith("x-readme")) {
+    if (
+      key === "example" ||
+      key === "examples" ||
+      key === "xml" ||
+      key === "$id" ||
+      key === "$anchor" ||
+      key.startsWith("x-readme")
+    ) {
       continue;
     }
     // OpenAPI-3.0-style nullability appears throughout this 3.1 spec; convert
     // it so ajv (2020-12 dialect) honours null literals.
     if (key === "nullable") {
-      if (value === true && typeof src.type === "string" && src.type !== "null") {
-        out.type = [src.type, "null"];
+      if (value === true) {
+        if (typeof src.type === "string" && src.type !== "null") {
+          out.type = [src.type, "null"];
+        } else if (Array.isArray(src.type) && !src.type.includes("null")) {
+          out.type = [...src.type, "null"];
+        }
       }
       continue;
     }
-    if (key === "type" && "nullable" in src && src.nullable === true) {
-      continue; // handled by the nullable branch
+    if (key === "type" && src.nullable === true && "type" in out) {
+      continue; // already written by the nullable branch
     }
     if (key === "description" && typeof value === "string") {
       const cleaned = collapseWhitespace(value);
@@ -237,15 +248,28 @@ function flattenOperation(
       schema.description = cleaned.length > 300 ? cleaned.slice(0, 300) : cleaned;
     }
     schema["x-in"] = param.in;
+    const existing = properties[param.name];
+    if (existing) {
+      // Same name in two locations: a path param must keep its slot (the
+      // route placeholder has to stay substitutable), otherwise last write wins.
+      if (existing["x-in"] === "path") {
+        warn(`${method} ${path}: ${param.in} parameter "${param.name}" collides with the path parameter; path wins`);
+        continue;
+      }
+      warn(`${method} ${path}: parameter "${param.name}" appears in both ${String(existing["x-in"])} and ${param.in}; ${param.in} copy wins`);
+    }
     properties[param.name] = schema;
-    if (param.required) required.push(param.name);
+    if (param.required && !required.includes(param.name)) required.push(param.name);
   }
 
   // Request body: merge object properties flat; non-object bodies become a
   // synthetic `body` property so array-shaped POSTs (DataForSEO) stay expressible.
   const bodyContent = op.requestBody?.content ?? {};
-  const jsonBody =
-    bodyContent["application/json"] ?? Object.values(bodyContent)[0];
+  const bodyMediaType = bodyContent["application/json"]
+    ? "application/json"
+    : Object.keys(bodyContent)[0];
+  const jsonBody = bodyMediaType ? bodyContent[bodyMediaType] : undefined;
+  let bodyAdditional: unknown;
   if (jsonBody?.schema) {
     const bodySchema = sanitizeSchema(jsonBody.schema);
     if (bodySchema) {
@@ -265,6 +289,11 @@ function flattenOperation(
         for (const name of (bodySchema.required as string[] | undefined) ?? []) {
           if (!required.includes(name)) required.push(name);
         }
+        // A body that legitimately accepts arbitrary keys must keep the merged
+        // object open; everything else is closed below.
+        if (bodySchema.additionalProperties !== undefined && bodySchema.additionalProperties !== false) {
+          bodyAdditional = bodySchema.additionalProperties;
+        }
       } else {
         bodySchema["x-in"] = "body-root";
         properties.body = bodySchema;
@@ -273,9 +302,12 @@ function flattenOperation(
     }
   }
 
+  // Closed by default: the property set above is the complete argument
+  // namespace, so unknown keys in a plan are misspelled/invented parameters.
   const inputSchema: JSONSchema = {
     type: "object",
     properties,
+    additionalProperties: bodyAdditional ?? false,
     ...(required.length > 0 ? { required } : {}),
   };
 
@@ -316,6 +348,7 @@ function flattenOperation(
     ...(outputSchema ? { outputSchema } : {}),
     kind,
     ...(costNote ? { costNote } : {}),
+    ...(bodyMediaType && bodyMediaType !== "application/json" ? { bodyMediaType } : {}),
   };
 }
 
@@ -332,8 +365,10 @@ export async function buildCatalog(opts: BuildCatalogOptions): Promise<BuildCata
   const specFetchedAt = new Date().toISOString();
   log(`Spec: ${(specBytes.length / 1024).toFixed(0)} KB, sha256 ${specSha256.slice(0, 12)}…`);
 
-  // The parser wants a file path (it sniffs YAML/JSON itself).
-  const tmpSpec = join(tmpdir(), `aisa-spec-${specSha256.slice(0, 12)}.yaml`);
+  // The parser wants a file path (it sniffs YAML/JSON itself). A private
+  // mkdtemp dir avoids predictable-name clobbering/races in the shared tmpdir.
+  const tmpDir = mkdtempSync(join(tmpdir(), "aisa-planner-"));
+  const tmpSpec = join(tmpDir, "spec.yaml");
   writeFileSync(tmpSpec, specBytes);
   let api: { paths?: Record<string, Record<string, unknown> & { parameters?: RawParameter[] }> };
   try {
@@ -342,7 +377,7 @@ export async function buildCatalog(opts: BuildCatalogOptions): Promise<BuildCata
       dereference: { circular: "ignore" },
     })) as typeof api;
   } finally {
-    rmSync(tmpSpec, { force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
   }
 
   const operations: Operation[] = [];
@@ -387,14 +422,17 @@ export async function buildCatalog(opts: BuildCatalogOptions): Promise<BuildCata
   operations.sort(
     (a, b) => a.tag.localeCompare(b.tag) || a.path.localeCompare(b.path) || a.method.localeCompare(b.method),
   );
-  const idCounts = new Map<string, number>();
+  const takenIds = new Set(operations.map((op) => op.operationId));
+  const seenIds = new Set<string>();
   for (const op of operations) {
-    const count = idCounts.get(op.operationId) ?? 0;
-    idCounts.set(op.operationId, count + 1);
-    if (count > 0) {
-      warn(`duplicate operationId "${op.operationId}" — renamed to "${op.operationId}_${count + 1}"`);
-      op.operationId = `${op.operationId}_${count + 1}`;
+    if (seenIds.has(op.operationId)) {
+      let n = 2;
+      let candidate = `${op.operationId}_${n}`;
+      while (takenIds.has(candidate) || seenIds.has(candidate)) candidate = `${op.operationId}_${++n}`;
+      warn(`duplicate operationId "${op.operationId}" — renamed to "${candidate}"`);
+      op.operationId = candidate;
     }
+    seenIds.add(op.operationId);
   }
 
   for (const w of warnings.slice(0, 20)) log(`  warn: ${w}`);

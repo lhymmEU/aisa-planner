@@ -26,7 +26,10 @@ export function encodeCatalog(
   }
   const headerBuf = Buffer.from(JSON.stringify(header), "utf8");
   const opsBuf = gzipSync(Buffer.from(JSON.stringify(operations), "utf8"), { level: 9 });
-  const vecBuf = Buffer.from(vectors.buffer, vectors.byteOffset, vectors.byteLength);
+  // Explicit little-endian floats — a raw view of the typed array would emit
+  // host byte order, and decode always reads LE.
+  const vecBuf = Buffer.alloc(vectors.length * 4);
+  for (let i = 0; i < vectors.length; i++) vecBuf.writeFloatLE(vectors[i]!, i * 4);
 
   const lenHeader = Buffer.alloc(4);
   lenHeader.writeUInt32LE(headerBuf.length);
@@ -46,7 +49,14 @@ export function decodeCatalog(buf: Buffer): Catalog {
   let off = MAGIC.length;
   const headerLen = buf.readUInt32LE(off);
   off += 4;
-  const header = JSON.parse(buf.subarray(off, off + headerLen).toString("utf8")) as CatalogHeader;
+  let header: CatalogHeader;
+  try {
+    header = JSON.parse(buf.subarray(off, off + headerLen).toString("utf8")) as CatalogHeader;
+  } catch {
+    throw new Error(
+      "Catalog header is corrupt (truncated or damaged file). Regenerate it with: aisa-planner build-catalog",
+    );
+  }
   off += headerLen;
 
   if (header.formatVersion !== 1) {
@@ -58,9 +68,16 @@ export function decodeCatalog(buf: Buffer): Catalog {
 
   const opsLen = buf.readUInt32LE(off);
   off += 4;
-  const operations = JSON.parse(
-    gunzipSync(buf.subarray(off, off + opsLen)).toString("utf8"),
-  ) as Operation[];
+  let operations: Operation[];
+  try {
+    operations = JSON.parse(
+      gunzipSync(buf.subarray(off, off + opsLen)).toString("utf8"),
+    ) as Operation[];
+  } catch {
+    throw new Error(
+      "Catalog operations section is corrupt (truncated or damaged file). Regenerate it with: aisa-planner build-catalog",
+    );
+  }
   off += opsLen;
 
   const vecBytes = buf.length - off;

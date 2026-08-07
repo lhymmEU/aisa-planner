@@ -42,9 +42,14 @@ export async function embedTexts(texts: string[], opts: EmbedOptions): Promise<n
     body: JSON.stringify({ model: opts.model, input: texts }),
   });
   if (!res.ok) {
-    const body = (await res.text()).slice(0, 500);
+    // 401/403 bodies from OpenAI-compatible gateways often echo the offered
+    // credential — never surface them.
+    const body =
+      res.status === 401 || res.status === 403 ? "" : `: ${(await res.text()).slice(0, 500)}`;
     throw new Error(
-      `AIsa embeddings request failed (HTTP ${res.status})${res.status === 401 ? " — check your AISA_API_KEY" : ""}: ${body}`,
+      `AIsa embeddings request failed (HTTP ${res.status})${
+        res.status === 401 || res.status === 403 ? " — check your AISA_API_KEY" : ""
+      }${body}`,
     );
   }
   const json = (await res.json()) as {
@@ -61,6 +66,11 @@ export async function embedTexts(texts: string[], opts: EmbedOptions): Promise<n
   for (let i = 0; i < data.length; i++) {
     const item: { index?: number; embedding?: number[] } = data[i]!;
     const idx = typeof item.index === "number" ? item.index : i;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= texts.length || out[idx] !== undefined) {
+      throw new Error(
+        `AIsa embeddings response malformed: bad or duplicate entry index ${idx} for ${texts.length} inputs`,
+      );
+    }
     const embedding = item.embedding;
     if (!Array.isArray(embedding)) {
       throw new Error(`AIsa embeddings response malformed: entry ${idx} has no embedding array`);

@@ -35,20 +35,45 @@ function embeddingsResponse(): Response {
   });
 }
 
+/** Entries are plan objects, or { raw } for verbatim content, or { status } for HTTP errors. */
 function stubNetwork(planObjects: unknown[]): ReturnType<typeof vi.fn> {
   let call = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/embeddings")) return embeddingsResponse();
     if (url.includes("/chat/completions")) {
-      const obj = planObjects[Math.min(call, planObjects.length - 1)];
+      const entry = planObjects[Math.min(call, planObjects.length - 1)] as
+        | { raw?: string; status?: number }
+        | Record<string, unknown>;
       call += 1;
-      return chatResponse(obj);
+      if (entry && typeof entry === "object" && "status" in entry && entry.status) {
+        return new Response("denied", { status: entry.status as number });
+      }
+      if (entry && typeof entry === "object" && "raw" in entry && entry.raw !== undefined) {
+        return chatRawResponse(String(entry.raw));
+      }
+      return chatResponse(entry);
     }
     throw new Error(`unexpected fetch: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+function chatRawResponse(content: string): Response {
+  return new Response(
+    JSON.stringify({
+      id: "cmpl-1",
+      object: "chat.completion",
+      created: 1,
+      model: "test",
+      choices: [
+        { index: 0, message: { role: "assistant", content }, finish_reason: "stop" },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
 }
 
 const GOOD_PLAN = {
@@ -119,6 +144,48 @@ describe("createPlan", () => {
     expect(chatCalls).toHaveLength(1);
   });
 
+  it("rethrows transport/auth errors immediately without a repair retry", async () => {
+    const fetchMock = stubNetwork([{ status: 401 }]);
+    await expect(createPlan("x", { apiKey: "bad", catalog: makeCatalog() })).rejects.toThrow();
+    const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/chat/completions"));
+    expect(chatCalls.length).toBeLessThanOrEqual(1);
+  });
+
+  it("gives non-JSON model output one repair retry, then succeeds", async () => {
+    const fetchMock = stubNetwork([{ raw: "Sorry, here is prose, not JSON." }, GOOD_PLAN]);
+    const result = await createPlan("x", { apiKey: "k", catalog: makeCatalog() });
+    expect(result.validation.ok).toBe(true);
+    const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/chat/completions"));
+    expect(chatCalls).toHaveLength(2);
+  });
+
+  it("normalizes step array order to stepNumber order", async () => {
+    const outOfOrder = {
+      goal: "two things",
+      assumptions: [],
+      steps: [
+        {
+          stepNumber: 2,
+          operationId: "get_crypto_price",
+          argTemplate: { symbol: "BTC" },
+          dependsOn: [],
+          rationale: "then price",
+        },
+        {
+          stepNumber: 1,
+          operationId: "search_papers",
+          argTemplate: { query: "q" },
+          dependsOn: [],
+          rationale: "papers first",
+        },
+      ],
+    };
+    stubNetwork([outOfOrder]);
+    const result = await createPlan("x", { apiKey: "k", catalog: makeCatalog() });
+    expect(result.plan.steps.map((s) => s.stepNumber)).toEqual([1, 2]);
+    expect(result.validation.ok).toBe(true);
+  });
+
   it("fails fast when a tag filter matches nothing", async () => {
     stubNetwork([GOOD_PLAN]);
     await expect(
@@ -178,6 +245,26 @@ describe("renderPlanMarkdown", () => {
     expect(md).toContain("sends a real email");
     expect(md).toContain("✅");
     expect(md).toContain("Depends on: step 1");
+  });
+
+  it("keeps badges attached to the right step when step numbers are duplicated", () => {
+    const catalog = makeCatalog();
+    const plan: Plan = {
+      goal: "dup",
+      assumptions: [],
+      steps: [
+        { stepNumber: 1, operationId: "search_papers", argTemplate: { query: "a" }, dependsOn: [], rationale: "ok step" },
+        { stepNumber: 1, operationId: "nope_op", argTemplate: {}, dependsOn: [], rationale: "bad step" },
+      ],
+    };
+    const validation = validatePlan(plan, catalog);
+    const md = renderPlanMarkdown(plan, validation);
+    // The failing duplicate must render ❌ — not inherit the other step's ✅.
+    expect(md).toContain("❌");
+    expect(md.indexOf("nope_op")).toBeGreaterThan(-1);
+    const nopeSection = md.slice(md.indexOf("`nope_op`"));
+    expect(nopeSection).toContain("operationId not found in catalog");
+    expect(nopeSection.split("## Step")[0]).not.toContain("✅");
   });
 
   it("marks invalid plans with a prominent stop banner", () => {

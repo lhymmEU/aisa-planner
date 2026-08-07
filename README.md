@@ -10,6 +10,14 @@ The bundled catalog covers **683 operations** across 14 source families (Financi
 
 Everything needs Node ≥ 20 and an `AISA_API_KEY` (get one at [aisa.one](https://aisa.one)). The key is **pass-through only**: it is sent to `api.aisa.one` and never logged or stored.
 
+> **If retrieval refuses to run** ("catalog was built without embeddings"): the catalog you have was built with `--no-embed`. Rebuild it once with your key — by default this regenerates the catalog in place, so `plan` picks it up with no extra flags:
+>
+> ```bash
+> AISA_API_KEY=... npx aisa-planner build-catalog
+> ```
+>
+> `sources` and `validate` work without embeddings. To keep the artifact elsewhere, use `--out FILE` and point at it with `--catalog FILE` (CLI), `catalogPath` (API), or `AISA_PLANNER_CATALOG=FILE` (env).
+
 ### CLI
 
 ```bash
@@ -86,6 +94,8 @@ Rebuild anytime with your key (a few cents of embeddings):
 ```bash
 AISA_API_KEY=... npx aisa-planner build-catalog
 ```
+
+By default this writes to the catalog location the same install loads (env `AISA_PLANNER_CATALOG` when set, else the bundled artifact), so the next `plan` uses it directly.
 
 ## Development
 

@@ -5,20 +5,27 @@ import type { Catalog } from "./types.js";
 
 export const BUNDLED_CATALOG_NAME = "aisa-jina-v3.catalog";
 
-function bundledCatalogPath(): string {
-  // dist/ and catalogs/ are siblings inside the published package.
+/**
+ * Where the catalog lives by default: the AISA_PLANNER_CATALOG environment
+ * variable when set, else the artifact bundled with the package (dist/ and
+ * catalogs/ are siblings inside the published package). `build-catalog`
+ * writes here by default too, so rebuild + plan compose without extra flags.
+ */
+export function defaultCatalogPath(): string {
+  const fromEnv = process.env.AISA_PLANNER_CATALOG;
+  if (fromEnv) return fromEnv;
   return fileURLToPath(new URL(`../catalogs/${BUNDLED_CATALOG_NAME}`, import.meta.url));
 }
 
 let cached: { path: string; catalog: Catalog } | undefined;
 
 /**
- * Load a catalog artifact from disk (defaults to the catalog bundled with the
- * package) and validate its stamp. Throws with a descriptive message on
- * format-version mismatch or corruption.
+ * Load a catalog artifact from disk (defaults to defaultCatalogPath()) and
+ * validate its stamp. Throws with a descriptive message on format-version
+ * mismatch or corruption.
  */
 export function loadCatalog(path?: string): Catalog {
-  const resolved = path ?? bundledCatalogPath();
+  const resolved = path ?? defaultCatalogPath();
   if (cached?.path === resolved) return cached.catalog;
   let buf: Buffer;
   try {
@@ -59,8 +66,10 @@ export function assertEmbedded(catalog: Catalog): void {
   if (!catalog.header.embedded || catalog.vectors.length === 0) {
     throw new Error(
       `This catalog was built without embeddings (no AISA_API_KEY at build time), ` +
-        `so semantic retrieval is unavailable. Rebuild it with a key: ` +
-        `AISA_API_KEY=... aisa-planner build-catalog`,
+        `so semantic retrieval is unavailable. Rebuild it with a key — by default this ` +
+        `regenerates the catalog in place so \`plan\` picks it up directly: ` +
+        `AISA_API_KEY=... aisa-planner build-catalog` +
+        ` (or use --out FILE and point at it with --catalog FILE / catalogPath / AISA_PLANNER_CATALOG=FILE)`,
     );
   }
 }

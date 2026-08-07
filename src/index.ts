@@ -1,5 +1,6 @@
 export {
   loadCatalog,
+  defaultCatalogPath,
   assertEmbeddingModel,
   assertEmbedded,
   BUNDLED_CATALOG_NAME,

@@ -20,23 +20,13 @@ jobs:
       - run: npm ci
       - name: Compare live spec hash against the bundled catalog stamp
         id: drift
-        run: |
-          npx tsx -e "
-          import { createHash } from 'node:crypto';
-          import { readFileSync, appendFileSync } from 'node:fs';
-          import { decodeCatalog } from './src/catalog-format.ts';
-          const live = Buffer.from(await (await fetch('https://aisa.one/openapi.yaml')).arrayBuffer());
-          const liveSha = createHash('sha256').update(live).digest('hex');
-          const catalog = decodeCatalog(readFileSync('catalogs/aisa-jina-v3.catalog'));
-          const stamped = catalog.header.specSha256;
-          const drifted = liveSha !== stamped;
-          console.log('live   ', liveSha);
-          console.log('stamped', stamped, '(fetched', catalog.header.specFetchedAt + ')');
-          appendFileSync(process.env.GITHUB_OUTPUT, 'drifted=' + drifted + '\nlive_sha=' + liveSha + '\nstamped_sha=' + stamped + '\n');
-          "
+        run: npx tsx scripts/check-drift.mts
       - name: Open an issue on drift
         if: steps.drift.outputs.drifted == 'true'
         uses: actions/github-script@v7
+        env:
+          LIVE_SHA: ${{ steps.drift.outputs.live_sha }}
+          STAMPED_SHA: ${{ steps.drift.outputs.stamped_sha }}
         with:
           script: |
             const title = "AIsa spec drift: bundled catalog is stale";
@@ -52,8 +42,8 @@ jobs:
               body: [
                 "The live `https://aisa.one/openapi.yaml` no longer matches the bundled catalog stamp.",
                 "",
-                "- live sha256: `${{ steps.drift.outputs.live_sha }}`",
-                "- stamped sha256: `${{ steps.drift.outputs.stamped_sha }}`",
+                "- live sha256: `" + process.env.LIVE_SHA + "`",
+                "- stamped sha256: `" + process.env.STAMPED_SHA + "`",
                 "",
                 "Rebuild with `AISA_API_KEY=... npm run build:catalog`, spot-check retrieval, and release a patch.",
               ].join("\n"),
