@@ -1,0 +1,32 @@
+name: Release to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # npm --provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Inspect the pack contents before publishing
+        run: |
+          npm pack --dry-run 2>&1 | tee pack.txt
+          # Guard against accidentally shipping sources or env files.
+          ! grep -E "^\s*npm notice .*(src/|\.env|node_modules/)" pack.txt
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,68 @@
+{
+  "name": "aisa-planner",
+  "version": "0.1.0",
+  "description": "Turn a natural-language intent into a validated, ordered list of AIsa API calls — schemas hydrated from the spec, per-step validation, bring your own AISA_API_KEY.",
+  "keywords": [
+    "aisa",
+    "openapi",
+    "planner",
+    "agent",
+    "tools",
+    "mcp",
+    "llm",
+    "retrieval"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "aisa-planner": "dist/cli.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./eve-tool": {
+      "types": "./dist/eve-tool.d.ts",
+      "import": "./dist/eve-tool.js",
+      "require": "./dist/eve-tool.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "catalogs",
+    "docs",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build:catalog": "tsx scripts/build-catalog.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@readme/openapi-parser": "^4.0.0",
+    "ai": "^5.0.0",
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.0",
+    "commander": "^14.0.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0",
+    "yaml": "^2.6.0"
+  }
+}
