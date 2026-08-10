@@ -1,6 +1,6 @@
 {
   "name": "aisa-planner",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Turn a natural-language intent into a validated, ordered list of AIsa API calls — schemas hydrated from the spec, per-step validation, bring your own AISA_API_KEY.",
   "keywords": [
     "aisa",
@@ -41,7 +41,9 @@
       "types": "./dist/eve-tool.d.ts",
       "import": "./dist/eve-tool.js",
       "require": "./dist/eve-tool.cjs"
-    }
+    },
+    "./catalogs/*": "./catalogs/*",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

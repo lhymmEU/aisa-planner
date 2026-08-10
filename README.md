@@ -52,6 +52,8 @@ const candidates = await retrieveOperations("crypto prices", { topK: 8 });
 const validation = validatePlan(myPlan, loadCatalog());
 ```
 
+**Bundling runtimes** (eve dev snapshots, Next.js, …): frameworks that bundle dependencies relocate the code away from `node_modules`, so the catalog can't be found relative to the module itself. Since 0.1.2 the loader falls back to module resolution and a cwd-upward `node_modules` walk automatically; if your setup still defeats that, set `AISA_PLANNER_CATALOG` to the artifact's absolute path or pass `catalogPath` explicitly.
+
 Ranking is pure cosine top-K over the stamped embedding space — no reranking, no boosts. A compound intent ("papers AND prediction markets") competes in one embedding, so its top-K skews toward whichever topic dominates the catalog; scope such goals with `tags` (the `sources` filter), raise `topK`, or retrieve per sub-intent.
 
 ### MCP (Claude Code, Cursor, any MCP client)

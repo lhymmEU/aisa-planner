@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { decodeCatalog } from "./catalog-format.js";
 import type { Catalog } from "./types.js";
@@ -17,15 +19,61 @@ export function defaultCatalogPath(): string {
   return fileURLToPath(new URL(`../catalogs/${BUNDLED_CATALOG_NAME}`, import.meta.url));
 }
 
+/**
+ * Candidate locations for READING the catalog, most specific first. Bundling
+ * runtimes (eve dev snapshots, Next.js, …) relocate this module's code, so
+ * the import.meta.url-relative path stops working there; module resolution
+ * and a cwd-upward walk still find the real node_modules install.
+ */
+export function catalogReadCandidates(cwd: string = process.cwd()): string[] {
+  const candidates: string[] = [];
+  const fromEnv = process.env.AISA_PLANNER_CATALOG;
+  if (fromEnv) candidates.push(fromEnv);
+  try {
+    candidates.push(fileURLToPath(new URL(`../catalogs/${BUNDLED_CATALOG_NAME}`, import.meta.url)));
+  } catch {
+    // import.meta.url may be unusable inside some bundles
+  }
+  try {
+    candidates.push(
+      createRequire(import.meta.url).resolve(`aisa-planner/catalogs/${BUNDLED_CATALOG_NAME}`),
+    );
+  } catch {
+    // not resolvable (bundled without node_modules access, or exports blocked)
+  }
+  let dir = cwd;
+  for (let i = 0; i < 10; i++) {
+    candidates.push(join(dir, "node_modules", "aisa-planner", "catalogs", BUNDLED_CATALOG_NAME));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return [...new Set(candidates)];
+}
+
+function resolveCatalogForRead(): string {
+  const candidates = catalogReadCandidates();
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `Cannot find the aisa-planner catalog. Tried:\n${candidates.map((c) => `  - ${c}`).join("\n")}\n` +
+      `Set AISA_PLANNER_CATALOG to the artifact's absolute path (in a bundling runtime ` +
+      `this is usually <project>/node_modules/aisa-planner/catalogs/${BUNDLED_CATALOG_NAME}), ` +
+      `pass { catalogPath }, or rebuild one with: aisa-planner build-catalog`,
+  );
+}
+
 let cached: { path: string; catalog: Catalog } | undefined;
 
 /**
- * Load a catalog artifact from disk (defaults to defaultCatalogPath()) and
- * validate its stamp. Throws with a descriptive message on format-version
- * mismatch or corruption.
+ * Load a catalog artifact from disk (defaults to searching the read
+ * candidates: AISA_PLANNER_CATALOG, the bundled artifact, module resolution,
+ * then a cwd-upward node_modules walk) and validate its stamp. Throws with a
+ * descriptive message on format-version mismatch or corruption.
  */
 export function loadCatalog(path?: string): Catalog {
-  const resolved = path ?? defaultCatalogPath();
+  const resolved = path ?? resolveCatalogForRead();
   if (cached?.path === resolved) return cached.catalog;
   let buf: Buffer;
   try {

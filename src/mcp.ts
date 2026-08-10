@@ -26,7 +26,7 @@ function errorResult(err: unknown) {
 }
 
 export function buildMcpServer(): McpServer {
-  const server = new McpServer({ name: "aisa-planner", version: "0.1.1" });
+  const server = new McpServer({ name: "aisa-planner", version: "0.1.2" });
 
   server.registerTool(
     "list_sources",

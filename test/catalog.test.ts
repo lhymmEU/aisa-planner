@@ -1,10 +1,17 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { join, sep } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decodeCatalog, encodeCatalog } from "../src/catalog-format.js";
-import { assertEmbedded, assertEmbeddingModel, loadCatalog } from "../src/catalog.js";
+import {
+  assertEmbedded,
+  assertEmbeddingModel,
+  catalogReadCandidates,
+  loadCatalog,
+} from "../src/catalog.js";
 import { makeCatalog, OPS } from "./helpers.js";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("catalog format", () => {
   it("round-trips header, operations and vectors", () => {
@@ -69,6 +76,37 @@ describe("loadCatalog", () => {
 
   it("gives a rebuild hint when the file is missing", () => {
     expect(() => loadCatalog("/definitely/not/here.catalog")).toThrow(/build-catalog/);
+  });
+
+  it("prefers AISA_PLANNER_CATALOG over every other candidate", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aisa-env-"));
+    const file = join(dir, "env.catalog");
+    const cat = makeCatalog();
+    writeFileSync(file, encodeCatalog(cat.header, cat.operations, cat.vectors));
+    vi.stubEnv("AISA_PLANNER_CATALOG", file);
+    // The repo's own bundled catalog exists too — the env path must still win.
+    const loaded = loadCatalog();
+    expect(loaded.header.specSha256).toBe(cat.header.specSha256);
+  });
+});
+
+describe("catalogReadCandidates", () => {
+  it("walks node_modules upward from cwd for bundled runtimes", () => {
+    const cwd = join(sep, "proj", "app", ".eve", "snapshot");
+    const candidates = catalogReadCandidates(cwd);
+    const nm = (base: string) =>
+      join(base, "node_modules", "aisa-planner", "catalogs", "aisa-jina-v3.catalog");
+    expect(candidates).toContain(nm(cwd));
+    expect(candidates).toContain(nm(join(sep, "proj", "app")));
+    expect(candidates).toContain(nm(join(sep, "proj")));
+    expect(candidates).toContain(nm(sep));
+    // deduped
+    expect(new Set(candidates).size).toBe(candidates.length);
+  });
+
+  it("puts the env override first when set", () => {
+    vi.stubEnv("AISA_PLANNER_CATALOG", "/custom/place.catalog");
+    expect(catalogReadCandidates("/anywhere")[0]).toBe("/custom/place.catalog");
   });
 });
 

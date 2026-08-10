@@ -137,3 +137,13 @@ automation, or anything the AIsa data APIs cover, plan before calling:
 Both variants read `AISA_API_KEY` from the environment — set it in your eve
 agent's env config. The key is pass-through only: it goes to api.aisa.one and
 is never logged or stored by the package.
+
+## Bundled runtime note
+
+eve's dev runtime bundles your agent (and its dependencies) into snapshot
+directories, which breaks naive asset paths. aisa-planner ≥ 0.1.2 handles
+this: when the module-relative catalog path doesn't exist, it falls back to
+module resolution and then walks upward from the working directory looking
+for `node_modules/aisa-planner/catalogs/`. If your deployment still can't
+find it, set `AISA_PLANNER_CATALOG=<absolute path to the .catalog file>` in
+the agent's env.
