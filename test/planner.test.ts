@@ -38,7 +38,7 @@ function embeddingsResponse(): Response {
 /** Entries are plan objects, or { raw } for verbatim content, or { status } for HTTP errors. */
 function stubNetwork(planObjects: unknown[]): ReturnType<typeof vi.fn> {
   let call = 0;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: unknown) => {
     const url = String(input);
     if (url.includes("/embeddings")) return embeddingsResponse();
     if (url.includes("/chat/completions")) {
@@ -106,7 +106,7 @@ describe("createPlan", () => {
 
     const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/chat/completions"));
     expect(chatCalls).toHaveLength(1);
-    const body = JSON.parse(String((chatCalls[0]![1] as RequestInit).body));
+    const body = JSON.parse(String((chatCalls[0]![1] as { body?: unknown }).body));
     const promptText = JSON.stringify(body.messages);
     expect(promptText).toContain("search_papers");
     expect(promptText).not.toContain("inputSchema");
@@ -131,7 +131,7 @@ describe("createPlan", () => {
 
     const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/chat/completions"));
     expect(chatCalls).toHaveLength(2);
-    const retryBody = JSON.parse(String((chatCalls[1]![1] as RequestInit).body));
+    const retryBody = JSON.parse(String((chatCalls[1]![1] as { body?: unknown }).body));
     expect(JSON.stringify(retryBody.messages)).toContain("does not exist");
     expect(result.validation.ok).toBe(false);
     expect(result.validation.steps[0]?.exists).toBe(false);

@@ -37,7 +37,10 @@ describe("retrieveOperations", () => {
     const fetchMock = vi.fn(async () => embeddingResponse([1, 0, 0, 0]));
     vi.stubGlobal("fetch", fetchMock);
     await retrieveOperations("x", { apiKey: "sk-abc", catalog: makeCatalog() });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      { headers: Record<string, string>; body?: unknown },
+    ];
     expect(url).toBe("https://api.aisa.one/v1/embeddings");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer sk-abc");
     expect(JSON.parse(String(init.body)).model).toBe("jina-embeddings-v3");
