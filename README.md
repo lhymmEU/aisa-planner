@@ -52,7 +52,7 @@ const candidates = await retrieveOperations("crypto prices", { topK: 8 });
 const validation = validatePlan(myPlan, loadCatalog());
 ```
 
-Ranking is cosine top-K with a tag-diversity cap (at most `max(2, ⌈topK/4⌉)` results per source family, rest backfilled by score) so the 445-operation SEO family can't crowd every search-flavoured intent out of the top-K. Pass `diversify: false` for pure cosine order.
+Ranking is pure cosine top-K over the stamped embedding space — no reranking, no boosts. A compound intent ("papers AND prediction markets") competes in one embedding, so its top-K skews toward whichever topic dominates the catalog; scope such goals with `tags` (the `sources` filter), raise `topK`, or retrieve per sub-intent.
 
 ### MCP (Claude Code, Cursor, any MCP client)
 
