@@ -14,7 +14,7 @@ program
   .description(
     "Turn a natural-language intent into a validated, ordered list of AIsa API calls.",
   )
-  .version("0.1.0");
+  .version("0.1.1");
 
 function fail(message: string): never {
   console.error(`Error: ${message}`);

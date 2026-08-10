@@ -1,6 +1,6 @@
 {
   "name": "aisa-planner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn a natural-language intent into a validated, ordered list of AIsa API calls — schemas hydrated from the spec, per-step validation, bring your own AISA_API_KEY.",
   "keywords": [
     "aisa",
@@ -56,10 +56,10 @@
     "build:catalog": "tsx scripts/build-catalog.ts"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^1.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.28",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@readme/openapi-parser": "^4.0.0",
-    "ai": "^5.0.0",
+    "ai": "^7.0.58",
     "ajv": "^8.17.0",
     "ajv-formats": "^3.0.0",
     "commander": "^14.0.0",
