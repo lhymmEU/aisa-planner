@@ -106,8 +106,9 @@ npm install
 npm run typecheck && npm test   # unit tests: no network, no key
 npm run build                   # tsup: ESM + CJS + d.ts
 npm run build:catalog           # rebuild catalogs/aisa-jina-v3.catalog (needs AISA_API_KEY)
-AISA_LIVE=1 AISA_API_KEY=... npm test   # + live retrieval/planning tests
 ```
+
+Retrieval quality against the live API is evaluated with a separate benchmark tool (planned), not fixed assertions in the unit suite.
 
 Release: tag `v*` → GitHub Actions runs typecheck/tests/build, inspects the pack contents, and publishes with `--provenance` (needs the `NPM_TOKEN` secret).
 
