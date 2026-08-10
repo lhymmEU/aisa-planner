@@ -15,10 +15,45 @@ import type {
 } from "./types.js";
 
 /**
- * Overridable via createPlan({ model }). Kept cheap: planning is one small
- * call, and this is the only mini-tier chat model the AIsa spec names.
+ * Overridable via createPlan({ model }) or AISA_PLANNER_MODEL. Kept cheap:
+ * planning is one small call, and this is the only mini-tier chat model the
+ * AIsa spec names.
  */
 export const DEFAULT_PLANNER_MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * Salvage a JSON object from fenced or prose-wrapped model output. Models
+ * routed through the OpenAI-compatible gateway (Claude ones especially) often
+ * wrap the object in ```json fences or a sentence of preamble.
+ */
+export function extractJsonObject(text: string): string | null {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  const candidate = fenced?.[1] ?? text;
+  const start = candidate.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < candidate.length; i++) {
+    const ch = candidate[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return candidate.slice(start, i + 1);
+    }
+  }
+  return null;
+}
 
 const PlanStepZ = z.object({
   stepNumber: z.number().int().positive(),
@@ -110,7 +145,7 @@ export async function createPlan(
 ): Promise<PlanResult> {
   const catalog = opts.catalog ?? loadCatalog(opts.catalogPath);
   const apiKey = resolveApiKey(opts.apiKey);
-  const modelId = opts.model ?? DEFAULT_PLANNER_MODEL;
+  const modelId = opts.model ?? process.env.AISA_PLANNER_MODEL ?? DEFAULT_PLANNER_MODEL;
 
   const candidates = await retrieveOperations(intent, {
     apiKey,
@@ -147,6 +182,7 @@ ${candidates.map(candidateLine).join("\n")}`;
       schema: PlanZ,
       system: SYSTEM_PROMPT,
       prompt,
+      experimental_repairText: async ({ text }) => extractJsonObject(text),
     });
     const plan = object as Plan;
     // Execution order is defined by stepNumber; normalize the array so every
@@ -185,8 +221,10 @@ Produce a corrected plan that fixes every failure. Same rules apply.`;
     } catch (err) {
       if (!plan || !validation) {
         if (!NoObjectGeneratedError.isInstance(err)) throw err;
+        const snippet = err.text ? ` Model output started with: ${JSON.stringify(err.text.slice(0, 200))}` : "";
         throw new Error(
-          `The planning model (${modelId}) failed to return a plan twice: ${err.message}`,
+          `The planning model (${modelId}) failed to return a plan twice: ${err.message}.${snippet} ` +
+            `Try another model via { model } or AISA_PLANNER_MODEL.`,
         );
       }
       // Keep the first attempt's plan + failures rather than losing everything.

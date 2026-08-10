@@ -19,6 +19,12 @@ export interface RetrieveOptions {
   embeddingModel?: string;
   /** Override the inference base URL (testing). */
   baseURL?: string;
+  /**
+   * Tag-diversity cap (default true): at most max(2, ⌈topK/4⌉) results per
+   * tag, remaining slots filled by pure score. Without it the 400+-operation
+   * SEO family crowds every search-flavoured intent out of the top-K.
+   */
+  diversify?: boolean;
 }
 
 function cosine(vectors: Float32Array, row: number, dims: number, query: number[]): number {
@@ -73,7 +79,30 @@ export async function retrieveOperations(
     scored.push({ ...op, score: cosine(catalog.vectors, i, catalog.header.dims, query) });
   }
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
+
+  if (!(opts.diversify ?? true)) return scored.slice(0, topK);
+
+  // Two passes: score order under a per-tag cap, then backfill by pure score.
+  // A single-tag candidate set degrades to exact score order.
+  const maxPerTag = Math.max(2, Math.ceil(topK / 4));
+  const picked: ScoredOperation[] = [];
+  const overflow: ScoredOperation[] = [];
+  const perTag = new Map<string, number>();
+  for (const op of scored) {
+    if (picked.length === topK) break;
+    const count = perTag.get(op.tag) ?? 0;
+    if (count < maxPerTag) {
+      picked.push(op);
+      perTag.set(op.tag, count + 1);
+    } else {
+      overflow.push(op);
+    }
+  }
+  for (const op of overflow) {
+    if (picked.length === topK) break;
+    picked.push(op);
+  }
+  return picked;
 }
 
 /** Distinct tags in the catalog with operation counts — no key, no network. */

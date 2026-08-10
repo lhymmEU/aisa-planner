@@ -151,6 +151,26 @@ describe("createPlan", () => {
     expect(chatCalls.length).toBeLessThanOrEqual(1);
   });
 
+  it("salvages a plan wrapped in markdown fences without burning the repair retry", async () => {
+    const fetchMock = stubNetwork([
+      { raw: "Here is your plan:\n```json\n" + JSON.stringify(GOOD_PLAN) + "\n```\nHope this helps!" },
+    ]);
+    const result = await createPlan("x", { apiKey: "k", catalog: makeCatalog() });
+    expect(result.validation.ok).toBe(true);
+    const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/chat/completions"));
+    expect(chatCalls).toHaveLength(1);
+  });
+
+  it("salvages a plan preceded by prose without fences", async () => {
+    const fetchMock = stubNetwork([
+      { raw: "Sure! The plan object is " + JSON.stringify(GOOD_PLAN) + " — let me know." },
+    ]);
+    const result = await createPlan("x", { apiKey: "k", catalog: makeCatalog() });
+    expect(result.validation.ok).toBe(true);
+    const chatCalls = fetchMock.mock.calls.filter(([u]) => String(u).includes("/chat/completions"));
+    expect(chatCalls).toHaveLength(1);
+  });
+
   it("gives non-JSON model output one repair retry, then succeeds", async () => {
     const fetchMock = stubNetwork([{ raw: "Sorry, here is prose, not JSON." }, GOOD_PLAN]);
     const result = await createPlan("x", { apiKey: "k", catalog: makeCatalog() });

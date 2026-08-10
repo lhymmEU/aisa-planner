@@ -24,7 +24,7 @@ Everything needs Node ≥ 20 and an `AISA_API_KEY` (get one at [aisa.one](https:
 AISA_API_KEY=... npx aisa-planner plan "find recent papers about LLM agents and check related prediction markets"
 ```
 
-- `aisa-planner plan "<intent>" [--tags a,b] [--top-k n] [--model id] [--json]` — markdown plan to stdout (`--json` for the raw object; exit code 2 when validation failed)
+- `aisa-planner plan "<intent>" [--tags a,b] [--top-k n] [--model id] [--json]` — markdown plan to stdout (`--json` for the raw object; exit code 2 when validation failed). The planning model defaults to a cheap one; override with `--model` or `AISA_PLANNER_MODEL`.
 - `aisa-planner sources` — list source families from the catalog (no key, no network)
 - `aisa-planner validate <plan.json>` — re-validate a saved plan (no key)
 - `aisa-planner build-catalog [--model id] [--out path] [--spec url] [--no-embed]` — rebuild the catalog from the live spec with your key
@@ -51,6 +51,8 @@ import { retrieveOperations, validatePlan, loadCatalog } from "aisa-planner";
 const candidates = await retrieveOperations("crypto prices", { topK: 8 });
 const validation = validatePlan(myPlan, loadCatalog());
 ```
+
+Ranking is cosine top-K with a tag-diversity cap (at most `max(2, ⌈topK/4⌉)` results per source family, rest backfilled by score) so the 445-operation SEO family can't crowd every search-flavoured intent out of the top-K. Pass `diversify: false` for pure cosine order.
 
 ### MCP (Claude Code, Cursor, any MCP client)
 
