@@ -1,6 +1,6 @@
 {
   "name": "aisa-planner",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Turn a natural-language intent into a validated, ordered list of AIsa API calls — schemas hydrated from the spec, per-step validation, bring your own AISA_API_KEY.",
   "keywords": [
     "aisa",
