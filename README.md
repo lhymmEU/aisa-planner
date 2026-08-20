@@ -1,36 +1,92 @@
 # aisa-planner
 
-Turn a natural-language intent into a **validated, ordered list of [AIsa](https://aisa.one) API calls** — with input schemas hydrated from the OpenAPI spec and per-step validation results — for you or your agent to execute with your own `AISA_API_KEY`.
+Turn a natural-language intent into a **validated, ordered list of [AIsa](https://aisa.one) API calls** — ready for you or your agent to execute with your own `AISA_API_KEY`.
 
-**Why:** planning decoupled from execution. Your agent's context stays small (it never loads a 4.5 MB spec), the LLM never invents schemas (it only picks operations and fills argument templates; schemas are attached from a prebuilt catalog), and every step is checked before anything runs: does the operation exist, are required params present, do literal values match the schema, do step references point backwards only. Write operations and credit-consuming calls are flagged with ⚠ so a human can approve them first.
+- **683 operations** across 14 source families (Financial Data, Crypto, Scholar Search, Prediction Markets, Web & News Search, SEO & Search Data, Twitter/X, Instagram, Reddit, YouTube, …) bundled as a prebuilt catalog — no spec download at runtime.
+- The LLM only **picks operations and fills arguments**. Schemas are attached from the OpenAPI spec, never invented by the model.
+- Every step is **validated before anything runs**. Write operations and credit-consuming calls are flagged with ⚠ so a human can approve them first.
+- Planning is decoupled from execution: this package never calls the data APIs, and your agent never loads a 4.5 MB spec.
 
-The bundled catalog covers **683 operations** across 14 source families (Financial Data, Crypto, Scholar Search, Prediction Markets, Web & News Search, Agent Email, Sales Intelligence, SEO & Search Data, Twitter/X, Instagram, Reddit, Pinterest, YouTube, WaveInflu).
+Requires **Node ≥ 20** and an `AISA_API_KEY` (get one at [aisa.one](https://aisa.one)). The key is pass-through only — sent to `api.aisa.one`, never logged or stored.
 
-## Quickstart
-
-Everything needs Node ≥ 20 and an `AISA_API_KEY` (get one at [aisa.one](https://aisa.one)). The key is **pass-through only**: it is sent to `api.aisa.one` and never logged or stored.
-
-> **If retrieval refuses to run** ("catalog was built without embeddings"): the catalog you have was built with `--no-embed`. Rebuild it once with your key — by default this regenerates the catalog in place, so `plan` picks it up with no extra flags:
->
-> ```bash
-> AISA_API_KEY=... npx aisa-planner build-catalog
-> ```
->
-> `sources` and `validate` work without embeddings. To keep the artifact elsewhere, use `--out FILE` and point at it with `--catalog FILE` (CLI), `catalogPath` (API), or `AISA_PLANNER_CATALOG=FILE` (env).
-
-### CLI
+## Example
 
 ```bash
-AISA_API_KEY=... npx aisa-planner plan "find recent papers about LLM agents and check related prediction markets"
+AISA_API_KEY=sk-... npx aisa-planner plan "find recent papers about LLM agents and check related prediction markets"
 ```
 
-- `aisa-planner plan "<intent>" [--tags a,b] [--top-k n] [--model id] [--json]` — markdown plan to stdout (`--json` for the raw object; exit code 2 when validation failed). The planning model defaults to a cheap one; override with `--model` or `AISA_PLANNER_MODEL`.
-- `aisa-planner sources` — list source families from the catalog (no key, no network)
-- `aisa-planner validate <plan.json>` — re-validate a saved plan (no key)
-- `aisa-planner build-catalog [--model id] [--out path] [--spec url] [--no-embed]` — rebuild the catalog from the live spec with your key
-- `aisa-planner mcp` — serve the planner over MCP stdio
+Output (abridged — schemas truncated):
 
-### Programmatic
+````markdown
+# Plan: find recent papers about LLM agents and check related prediction markets
+
+> **Execution:** call `https://api.aisa.one/apis/v1` with header `Authorization: Bearer $AISA_API_KEY`.
+> Never hardcode the key; read it from the environment.
+
+**Assumptions:**
+
+- "recent" means papers published since 2025
+
+## Step 1 — `searchScholar`
+
+`POST /scholar/search/scholar` — Search academic papers
+
+_Find recent papers on LLM agents first._
+
+⚠ write operation (POST /scholar/search/scholar) — has side effects; confirm before executing
+
+**Arguments** (values like `{{step_N.output.*}}` are filled from earlier step responses):
+
+```json
+{ "query": "LLM agents", "as_ylo": 2025 }
+```
+
+**Input schema:**
+
+```json
+{ "type": "object", "properties": { "query": { "type": "string", … }, … }, "required": ["query"] }
+```
+
+**Validation:** ✅ operation exists, required params present, literal values match the schema
+
+## Step 2 — `get_kalshi_markets`
+
+`GET /kalshi/markets` — Get Kalshi Markets
+
+_Check prediction markets related to AI/LLM topics._
+
+**Arguments** …
+**Validation:** ✅ operation exists, required params present, literal values match the schema
+````
+
+Steps that depend on earlier responses use placeholders like `"{{step_1.output.results.0.id}}"` — the executor fills them at run time. Validation failures render as ❌ badges with the exact problems listed; they are returned, never thrown.
+
+## Quick start: npx
+
+No install needed:
+
+```bash
+export AISA_API_KEY=sk-...
+npx aisa-planner plan "what is the current price of bitcoin in USD?"
+```
+
+All commands:
+
+| Command | Needs key | What it does |
+|---|---|---|
+| `plan "<intent>" [--tags a,b] [--top-k n] [--model id] [--json]` | yes | Markdown plan to stdout (`--json` for the raw object; exit code 2 on validation failure) |
+| `sources` | no | List source families in the catalog |
+| `validate <plan.json>` | no | Re-validate a saved plan |
+| `build-catalog [--out path] [--no-embed]` | yes | Rebuild the catalog from the live spec (~a few cents of embeddings) |
+| `mcp` | yes | Serve the planner over MCP stdio |
+
+The planning model defaults to a cheap one; override with `--model` or `AISA_PLANNER_MODEL`.
+
+## Quick start: in your project
+
+```bash
+npm install aisa-planner
+```
 
 ```ts
 import { createPlan } from "aisa-planner";
@@ -39,6 +95,7 @@ const { plan, validation, exportMarkdown } = await createPlan(
   "what is the current price of bitcoin in USD?",
   { apiKey: process.env.AISA_API_KEY }, // omit to read the env var directly
 );
+
 if (!validation.ok) console.warn("plan has failed steps — inspect before running");
 console.log(exportMarkdown());
 ```
@@ -51,10 +108,6 @@ import { retrieveOperations, validatePlan, loadCatalog } from "aisa-planner";
 const candidates = await retrieveOperations("crypto prices", { topK: 8 });
 const validation = validatePlan(myPlan, loadCatalog());
 ```
-
-**Bundling runtimes** (eve dev snapshots, Next.js, …): frameworks that bundle dependencies relocate the code away from `node_modules`, so the catalog can't be found relative to the module itself. Since 0.1.2 the loader falls back to module resolution and a cwd-upward `node_modules` walk automatically; if your setup still defeats that, set `AISA_PLANNER_CATALOG` to the artifact's absolute path or pass `catalogPath` explicitly.
-
-Ranking is pure cosine top-K over the stamped embedding space — no reranking, no boosts. A compound intent ("papers AND prediction markets") competes in one embedding, so its top-K skews toward whichever topic dominates the catalog; scope such goals with `tags` (the `sources` filter), raise `topK`, or retrieve per sub-intent.
 
 ### MCP (Claude Code, Cursor, any MCP client)
 
@@ -70,49 +123,22 @@ Ranking is pure cosine top-K over the stamped embedding space — no reranking, 
 }
 ```
 
-Tools: `list_sources`, `create_plan(goal, sources?)`, `get_operation(operationId)`. The `create_plan` tool description instructs the calling agent to surface ⚠ write/cost steps to the user before executing them.
+Tools: `list_sources`, `create_plan(goal, sources?)`, `get_operation(operationId)`. The `create_plan` tool tells the calling agent to surface ⚠ write/cost steps to the user before executing them.
 
-### eve
+## How it works
 
-Docs-only integration (no eve code in this package): copy-paste tool files and a skill playbook in [docs/eve-integration.md](docs/eve-integration.md) — a one-call planner tool wrapping `createPlan`, and a cheaper agent-native variant wrapping `retrieveOperations` + `validatePlan` so the host model composes the plan itself.
+1. **Catalog (built offline, shipped in the package).** The AIsa OpenAPI spec is cleaned and compiled into a catalog artifact: 683 operations with merged input schemas, output schemas, read/write kind, cost notes, and a `jina-embeddings-v3` vector per operation. The artifact stamps the embedding model, the spec's sha256, and the fetch timestamp; a weekly CI job checks the live spec for drift.
+2. **Retrieve.** Your intent is embedded with the stamped model and matched against the catalog by pure cosine top-K. Scope with `tags` (source-family filter) or raise `topK` for compound goals.
+3. **Plan.** A small LLM sees only the retrieved candidates and produces steps: `operationId`, an `argTemplate` of literals or `{{step_N.output.*}}` placeholders, `dependsOn`, and a rationale. It never sees or writes schemas.
+4. **Hydrate.** Method, path, and input/output schemas are attached to each step from the catalog.
+5. **Validate.** Each step is checked: operation exists, required params present, literal values pass the JSON schema (ajv), references point backwards only. Hard failures trigger one retry with the errors fed back; whatever remains is returned with ❌ badges. Write/cost operations get ⚠ warnings.
+6. **You execute.** The plan is markdown (or JSON) for your agent to run against `https://api.aisa.one/apis/v1` with your own key. This package never executes anything.
 
-## Plan format
+## Notes
 
-See [docs/plan-format.md](docs/plan-format.md). Highlights:
-
-- Steps carry `argTemplate` with literals or `"{{step_N.output.field}}"` placeholders; references may only point to earlier steps.
-- Schemas in the output come from the catalog, never from the LLM.
-- Validation failures are **returned, not thrown** — red badges in the markdown, structured results in `validation`.
-- `kind: "write"` (any non-GET operation) and `costNote` (Apollo credits, DataForSEO metered calls, real email sends, …) steps render ⚠ lines. Surface them to a human before executing.
-
-## Catalog versioning & staleness
-
-The catalog artifact (`catalogs/aisa-jina-v3.catalog`) is built offline from `https://aisa.one/openapi.yaml` and stamps: the embedding model (`jina-embeddings-v3`, 1024 dims), the spec's sha256, the fetch timestamp, and the operation count. At runtime:
-
-- the query-embedding model is read **from the stamp**, never from config; an explicit override that differs is refused with an error naming both IDs;
-- a catalog whose format version this package doesn't understand is refused;
-- a weekly CI job re-fetches the live spec and opens an issue when its hash drifts from the stamp.
-
-Rebuild anytime with your key (a few cents of embeddings):
-
-```bash
-AISA_API_KEY=... npx aisa-planner build-catalog
-```
-
-By default this writes to the catalog location the same install loads (env `AISA_PLANNER_CATALOG` when set, else the bundled artifact), so the next `plan` uses it directly.
-
-## Development
-
-```bash
-npm install
-npm run typecheck && npm test   # unit tests: no network, no key
-npm run build                   # tsup: ESM + CJS + d.ts
-npm run build:catalog           # rebuild catalogs/aisa-jina-v3.catalog (needs AISA_API_KEY)
-```
-
-Retrieval quality against the live API is evaluated with a separate benchmark tool (planned), not fixed assertions in the unit suite.
-
-Release: tag `v*` → GitHub Actions runs typecheck/tests/build, inspects the pack contents, and publishes with `--provenance` (needs the `NPM_TOKEN` secret).
+- **Bundlers** (Next.js, etc.): the catalog loader falls back to module resolution and a `node_modules` walk; if your bundler still defeats it, set `AISA_PLANNER_CATALOG` to the artifact's absolute path or pass `catalogPath`.
+- **"catalog was built without embeddings"**: your catalog was built with `--no-embed`. Rebuild in place: `AISA_API_KEY=... npx aisa-planner build-catalog`.
+- Full plan JSON shape and validation semantics: [docs/plan-format.md](docs/plan-format.md). eve integration (copy-paste tool files): [docs/eve-integration.md](docs/eve-integration.md).
 
 ## License
 
